@@ -1,3 +1,4 @@
+import routines
 from tools import *
 from objects import *
 from routines import *
@@ -22,7 +23,7 @@ class ExampleBot(GoslingAgent):
                 closest = item
 
                 closest_distance = item_distance
-        agent.push(goto_boost(closest))
+        agent.push(goto_boost(closest, agent.ball.location))
 
     def goal_boost(agent):
         boosts = [boost for boost in agent.boosts if boost.large and boost.active and abs(
@@ -37,7 +38,7 @@ class ExampleBot(GoslingAgent):
                     closest = boost
             agent.push(goto_boost(closest, agent.friend_goal.location))
 
-    def shots(agent, ball_right, ball_left, left_side, right_side):
+    def shots(agent, left_side, right_side, next_shot=False):
 
         left_back_post = False
         right_back_post = False
@@ -46,21 +47,33 @@ class ExampleBot(GoslingAgent):
         shots = find_hits(agent, targets)
 
         if len(shots["goal"]) > 0:
-            agent.push(shots["goal"][0])
+            shot = shots["goal"][0]
+            for shot_type in shots:
+                shot_list = shots[shot_type]
+                for s in shot_list:
+                    try:
+                        if s.is_aerial():
+                            print("aerial shot")
+                    except:
+                        print(s)
+            agent.push(shot)
 
         else:
-            if ball_right:
-                left_back_post = True
-            elif ball_left:
-                right_back_post = True
-        return left_back_post, right_back_post
+            if next_shot:
+                agent.push(short_shot(agent.foe_goal.location))
+            elif not next_shot:
+                agent.push(go_goal(agent, agent.ball.location))
 
     def run(agent):
 
-        foe_close_to_net = (agent.foes[0].location - agent.friend_goal.location).magnitude() < 1500
+        score_chance = abs(agent.ball.location - agent.foe_goal.location).magnitude() <= 1500
 
-        left_post = agent.friend_goal.left_post + Vector3(0,500,0) * -side(agent.team)
-        right_post = agent.friend_goal.right_post + Vector3(0,500,0) * -side(agent.team)
+        mid = Vector3(0,0,0)
+        need_clear = abs(agent.ball.location - agent.friend_goal.location).magnitude() <= 5500
+        ball_close_to_net = abs(agent.ball.location - agent.friend_goal.location).magnitude() <= 3500
+
+        left_post = agent.friend_goal.left_post + Vector3(300,500,0) * -side(agent.team)
+        right_post = agent.friend_goal.right_post + Vector3(-300,500,0) * -side(agent.team)
         ball_right = agent.ball.location.x >= 0
         ball_left = agent.ball.location.x < 0
 
@@ -98,29 +111,38 @@ class ExampleBot(GoslingAgent):
             if agent.kickoff_flag:
                 agent.push(kickoff(agent))
 
-            elif foe_onside and not me_onside and foe_close:
-                if ball_right:
-                    left_back_post = True
-                elif ball_left:
-                    right_back_post = True
+            elif me_onside and need_clear and not foe_super_close:
+                agent.push(short_shot(agent.foe_goal.location))
+
+            elif score_chance and close:
+                agent.shots(agent.foe_goal.left_post, agent.foe_goal.left_post, True)
+
+            elif not score_chance and agent.me.boost < 20 and not foe_super_close:
+                agent.get_boost()
 
             elif not foe_onside and close and me_onside and not foe_close:
-                left_back_post, right_back_post = agent.shots(ball_right, ball_left, agent.foe_goal.left_post, agent.foe_goal.right_post)
+                agent.shots(agent.foe_goal.left_post, agent.foe_goal.right_post)
+
+            elif foe_onside and not me_onside and foe_super_close and not close:
+                agent.push(go_goal(agent, agent.ball.location))
 
             elif me_onside and not foe_close and foe_right_side and foe_onside:
-                left_back_post, right_back_post = agent.shots(ball_right, ball_left, agent.foe_goal.left_post, agent.foe_goal.location)
+                agent.shots(agent.foe_goal.left_post, agent.foe_goal.location)
 
             elif me_onside and not foe_close and foe_left_side and foe_onside:
-                left_back_post, right_back_post = agent.shots(ball_right, ball_left, agent.foe_goal.location, agent.foe_goal.right_post)
+                agent.shots(agent.foe_goal.location, agent.foe_goal.right_post)
 
             elif not me_onside and not have_boost and not foe_close:
                 agent.goal_boost()
+
+            elif not me_onside and foe_onside:
+                agent.push(go_goal(agent, agent.ball.location))
 
             elif not have_boost and not foe_close:
                 agent.get_boost()
 
             else:
-                left_back_post, right_back_post = agent.shots(ball_right, ball_left, agent.foe_goal.left_post, agent.foe_goal.right_post)
+                agent.shots(agent.foe_goal.left_post, agent.foe_goal.right_post)
 
         if return_to_goal:
             distance_to_goal = abs(agent.friend_goal.location.y) - abs(agent.me.location.y)
@@ -129,11 +151,3 @@ class ExampleBot(GoslingAgent):
             defaultThrottle(agent, 2300)
             agent.controller.boost = False if abs(angles[1]) > .5 or agent.me.airborne else agent.controller.boost
             agent.controller.handbrake = True if abs(angles[1]) > 2.8 else False
-
-        if left_back_post:
-            print("left back post")
-            agent.push(goto(left_post, agent.ball.location))
-
-        if right_back_post:
-            print("right back post")
-            agent.push(goto(right_post, agent.ball.location))
